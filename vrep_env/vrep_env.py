@@ -36,8 +36,8 @@ class VrepEnv(gym.Env):
 			'simx_return_initialize_error_flag']
 		
 		self.connect(server_addr,server_port)
-		if not self.scene_loaded:
-			self.load_scene(scene_path)
+		#if not self.scene_loaded:
+		#	self.load_scene(scene_path)
 	 
 	# internal methods
 	
@@ -62,7 +62,7 @@ class VrepEnv(gym.Env):
 				connectionPort                 = server_port,
 				waitUntilConnected             = True,
 				doNotReconnectOnceDisconnected = True,
-				timeOutInMs                    = 1000,
+				timeOutInMs                    = -15000,
 				commThreadCycleInMs            = 0)
 			attempts += 1
 			if self.cID != -1:
@@ -137,7 +137,7 @@ class VrepEnv(gym.Env):
 		if not self.sim_running:
 			raise RuntimeError('Simulation is not running.')
 		
-		self.RAPI_rc(vrep.simxStopSimulation(self.cID, vrep.simx_opmode_blocking))
+		self.RAPI_rc(vrep.simxStopSimulation(self.cID, vrep.simx_opmode_oneshot))
 		
 		# Checking if the server really stopped
 		try:
@@ -220,12 +220,25 @@ class VrepEnv(gym.Env):
 		nim = np.flip(nim, 0)  # horizontal flip
 		#nim = np.flip(nim, 2)  # RGB -> BGR
 		return nim
+
+	def obj_get_depth_matrix(self, handle):
+		resolution, dbuffer = self.RAPI_rc(vrep.simxGetVisionSensorDepthBuffer(self.cID,
+							handle, self.opM_get))
+		dim, dep = resolution, dbuffer
+		depim = np.array(dep, dtype='float32')
+		depim = np.reshape(depim, (dim[1], dim[0]))
+		depim = np.flip(depim, 0)
+		return depim
 	
 	# "setters"
 	
 	def obj_set_position_target(self, handle, angle):
 		return self.RAPI_rc(vrep.simxSetJointTargetPosition( self.cID,handle,
-			-np.deg2rad(angle),
+			angle,
+			self.opM_set))
+	def obj_set_joint_position(self, handle, angle):
+		return self.RAPI_rc(vrep.simxSetJointPosition( self.cID,handle,
+			angle,
 			self.opM_set))
 	def obj_set_velocity(self, handle, v):
 		return self.RAPI_rc(vrep.simxSetJointTargetVelocity( self.cID,handle,
@@ -254,6 +267,18 @@ class VrepEnv(gym.Env):
 		collisionState, = self.RAPI_rc(vrep.simxReadCollision( self.cID,handle,
 				self.opM_get))
 		return collisionState
+
+	# distance
+	
+	def get_distance_handle(self, name):
+		handle, = self.RAPI_rc(vrep.simxGetDistanceHandle(self.cID, name, vrep.simx_opmode_blocking))
+		return handle
+	def read_distance(self, handle):
+		distance, = self.RAPI_rc(vrep.simxReadDistance( self.cID,handle,
+				self.opM_get))
+		if distance > 1e36:
+			raise Exception("distance object unhandled yet")
+		return distance
 	
 	# signals
 	
@@ -317,6 +342,10 @@ class VrepEnv(gym.Env):
 	def get_array_parameter(self, param_id):
 		return self.RAPI_rc(vrep.simxGetArrayParameter( self.cID,
 			param_id,
+			vrep.simx_opmode_blocking))[0]
+	def get_obj_float_parameter(self, obj_id, param_id):
+		return self.RAPI_rc(vrep.simxGetObjectFloatParameter( self.cID,
+			obj_id, param_id,
 			vrep.simx_opmode_blocking))[0]
 	
 	# scripts
